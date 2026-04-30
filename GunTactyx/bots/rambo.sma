@@ -6,11 +6,10 @@
 #define MSG_ENEMY 200
 
 // ============================
-// VARIABLES RAMBO
+// RAMBO DATA
 // ============================
-new float:targetX = 0.0;
-new float:targetY = 0.0;
-new bool:tieneObjetivo = false;
+new float:targetAngle = 0.0;
+new bool:tieneOrden = false;
 
 // ============================
 // INICIO
@@ -18,26 +17,6 @@ new bool:tieneObjetivo = false;
 stock iniciarBot() {
     seed(getID());
     walk();
-}
-
-// ============================
-// ATAN2
-// ============================
-stock float:atan2(float:y, float:x) {
-
-    if (abs(x) < 0.00001) {
-        if (y > 0.0) return 1.5708;
-        return -1.5708;
-    }
-
-    new float:a = atan(y / x);
-
-    if (x < 0.0) {
-        if (y >= 0.0) return a + 3.1415;
-        return a - 3.1415;
-    }
-
-    return a;
 }
 
 // ============================
@@ -63,8 +42,10 @@ stock escanear(&float:headAngle, &headDir) {
 // DISPERSIÓN
 // ============================
 stock moverseDispersion() {
+
     new float:dir = getDirection();
     new float:randTurn = (float(random(200)) / 100.0) - 1.0;
+
     rotate(dir + randTurn * 1.2);
 }
 
@@ -81,7 +62,7 @@ stock atacar() {
 
     if ((item & ITEM_ENEMY) != 0) {
 
-        new float:angle = getDirection() + yaw;
+        new float:angle = getDirection() + getTorsoYaw() + getHeadYaw() + yaw;
 
         rotate(angle);
         wait(0.2);
@@ -141,7 +122,7 @@ stock evitarColisiones() {
 }
 
 // ============================
-// LÍDER (datos simulados)
+// LÍDER ENVÍA (simulado)
 // ============================
 stock liderEnviar() {
 
@@ -159,13 +140,13 @@ stock liderEnviar() {
         }
     }
     else if (estado == 1) {
-        if (speak(CHANNEL, 50)) { // yaw
+        if (speak(CHANNEL, 157)) { // yaw *100
             estado = 2;
             lastTime = getTime();
         }
     }
     else if (estado == 2) {
-        if (speak(CHANNEL, 60)) { // distancia
+        if (speak(CHANNEL, 100)) { // dist (ya no lo usamos)
             estado = 0;
             lastTime = getTime();
         }
@@ -181,7 +162,6 @@ stock ramboRecibir() {
 
     static estado = 0;
     static float:yaw = 0.0;
-    static float:dist = 0.0;
 
     if (listen(CHANNEL, msg, sender)) {
 
@@ -194,71 +174,39 @@ stock ramboRecibir() {
         }
         else if (estado == 2) {
 
-            dist = float(msg) / 100.0;
             estado = 0;
 
-            new float:x, float:y, float:z;
-            getLocation(x, y, z);
+            // 🔥 CLAVE: calcular ángulo directo
+            targetAngle = getDirection() + yaw;
 
-            new float:angle = getDirection() + getTorsoYaw() + getHeadYaw() + yaw;
-
-            targetX = x + cos(angle) * dist;
-            targetY = y + sin(angle) * dist;
-
-            tieneObjetivo = true;
+            tieneOrden = true;
         }
     }
 }
 
 // ============================
-// RAMBO MOVER (FIX REAL)
+// RAMBO MOVER (ESTABLE)
 // ============================
 stock ramboMover() {
 
-    if (!tieneObjetivo) {
-        return;
-    }
+    if (!tieneOrden) return;
 
-    new float:x, float:y, float:z;
-    getLocation(x, y, z);
-
-    new float:dx = targetX - x;
-    new float:dy = targetY - y;
-
-    new float:dist = sqrt(dx*dx + dy*dy);
-
-    // 🔥 LLEGÓ
-    if (dist < 1.0) {
-
-        tieneObjetivo = false;
-
-        if (!isStanding()) {
-            stand();
-        }
-
-        return;
-    }
-
-    new float:targetAngle = atan2(dy, dx);
     new float:current = getDirection();
     new float:diff = targetAngle - current;
 
-    // NORMALIZAR
-    if (diff > 3.1415) diff -= 6.2830;
-    if (diff < -3.1415) diff += 6.2830;
+    // normalizar
+    while (diff > 3.1415) diff -= 6.2830;
+    while (diff < -3.1415) diff += 6.2830;
 
-    // 🔥 CLAVE: SOLO GIRAR SI ES NECESARIO
-    if (abs(diff) > 0.1) {
-        rotate(current + diff);
-    }
+    //  SOLO CORREGIR UN POCO (evita vibración)
+    rotate(current + diff * 0.3);
 
-    // 🔥 SOLO CAMINA SI YA ESTÁ MÁS O MENOS ALINEADO
+    //  SI YA ESTÁ ALINEADO → AVANZA
     if (abs(diff) < 0.5) {
-        if (!isWalking()) {
-            walk();
-        }
+        run();
+
     } else {
-        stand();
+        walk();
     }
 }
 
@@ -276,13 +224,16 @@ main() {
 
     while (true) {
 
+        // LÍDER
         if (getID() == 0) {
             liderEnviar();
         }
 
+        // EVITAR SIEMPRE
         if (evitarParedes()) { wait(0.04); continue; }
         if (evitarColisiones()) { wait(0.04); continue; }
 
+        // DISPERSIÓN
         if ((getTime() - startTime) < 4.0) {
 
             moverseDispersion();
@@ -298,7 +249,8 @@ main() {
                 ramboRecibir();
                 ramboMover();
                 atacar();
-            }
+
+            } 
             else {
 
                 if (!isStanding()) {
