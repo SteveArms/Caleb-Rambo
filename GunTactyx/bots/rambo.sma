@@ -114,6 +114,55 @@ stock evitarColision() {
     return 0
 }
 
+// Esquiva proactivamente a compañeros cercanos usando watch().
+// Detecta amigos (ITEM_WARRIOR|ITEM_FRIEND) a menos de 'umbral' unidades.
+// Usa walkbk para retroceder y luego rodea al compañero con angulo diagonal.
+// Retorna 1 si esquivo, 0 si no.
+stock evitarCompanero(float:umbral = 5.0) {
+    new item = ITEM_WARRIOR | ITEM_FRIEND
+    new float:dist = 0.0
+    new float:yaw
+    watch(item, dist, yaw)
+
+    // Solo esquivar si detectamos un compañero cerca
+    if (item == ITEM_WARRIOR | ITEM_FRIEND && dist < umbral && dist > 0.0) {
+        // Si el compañero esta al frente (yaw dentro de ~60°)
+        new float:absYaw = yaw
+        if (absYaw < 0.0) {
+            absYaw = -absYaw
+        }
+        if (absYaw < 1.0472) {  // ~60 grados, compañero en el camino
+            // Paso 1: Retroceder para crear espacio
+            stand()
+            wait(0.2)
+            walkbk()
+            wait(0.6)
+            stand()
+            wait(0.2)
+
+            // Paso 2: Calcular angulo de escape diagonal (no 90° puro)
+            // Usar el angulo al compañero para ir al lado opuesto + 45°
+            new float:evadeAngle
+            new float:companeroAngle = getDirection() + yaw  // angulo absoluto al compañero
+            if (yaw >= 0.0) {
+                // Compañero a la izquierda -> rodear por la derecha
+                evadeAngle = companeroAngle - PI + 0.7854  // opuesto + 45° derecha
+            } else {
+                // Compañero a la derecha -> rodear por la izquierda
+                evadeAngle = companeroAngle + PI - 0.7854  // opuesto + 45° izquierda
+            }
+            rotate(evadeAngle)
+            wait(0.5)
+            walk()
+            wait(0.3)
+            run()
+            wait(1.0)  // correr un poco para despejar
+            return 1
+        }
+    }
+    return 0
+}
+
 // Envia 3 palabras por speak() con cooldown: header, coordX, coordY
 // Retorna cuando termina el envio completo.
 stock enviarCoordenadas(channel, header, float:coordX, float:coordY) {
@@ -222,7 +271,7 @@ loopJefe() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-//  CALEB (ID 1) - Patrulla esquinas, detecta enemigos, huye al lider
+//  CALEB (ID 1) - Patrulla esquinas, detecta enemigos, reporta por radio
 // ═══════════════════════════════════════════════════════════════════
 
 loopCaleb() {
@@ -244,12 +293,12 @@ loopCaleb() {
 
     for (;;) {
 
-        // --- Mision completada: Caleb se queda parado con cabeza al frente ---
+        // --- Mision completada: Caleb se queda parado inhabilitado ---
         if (misionCompleta == 1) {
             stand()
             rotateHead(0.0)   // cancelar rotacion de cabeza
             wait(1.0)
-            // No hace nada mas, vuelve a esperar
+            // Inhabilitado: no hace nada mas
         } else {
 
             // --- Rotar cabeza para escanear ---
@@ -274,9 +323,9 @@ loopCaleb() {
                 printf("Caleb absoluteAngle:%f^n", absoluteAngle)
             }
 
-            // --- Si hay enemigo, correr hacia el lider y entregar info ---
+            // --- Si detecto enemigo, reportar al lider ---
             if (huyendo == 1) {
-                calebHuirAlLider(huyendo, misionCompleta, localEnemyX, localEnemyY)
+                calebReportarAlLider(huyendo, misionCompleta, localEnemyX, localEnemyY)
             } else {
                 // --- Navegar hacia la esquina actual ---
                 calebPatrullarEsquinas(cornersX, cornersY, cornerIndex)
@@ -300,8 +349,10 @@ loopCaleb() {
     }
 }
 
-// Caleb huye hacia el lider. Cuando llega, envia coordenadas y marca mision completa.
-stock calebHuirAlLider(&huyendo, &misionCompleta, float:localEnemyX, float:localEnemyY) {
+// Caleb reporta al lider por radio cuando esta a menos de 50 unidades.
+// Si esta mas lejos, corre hacia el lider hasta entrar en rango.
+// Una vez enviado el reporte, queda inhabilitado (misionCompleta = 1).
+stock calebReportarAlLider(&huyendo, &misionCompleta, float:localEnemyX, float:localEnemyY) {
     new float:leaderX
     new float:leaderY
     new float:myX
@@ -312,20 +363,24 @@ stock calebHuirAlLider(&huyendo, &misionCompleta, float:localEnemyX, float:local
 
     new float:distToLeader = calcDist(myX, myY, leaderX, leaderY)
 
-    if (distToLeader < 3.0) {
+    if (distToLeader < 50.0) {
+        // Dentro de rango: enviar por radio inmediatamente
+        stand()
         huyendo = 0
 
+        printf("Caleb en rango (dist:%f), enviando por radio^n", distToLeader)
         printf("Caleb enviando msgX:%d msgY:%d^n",
                encodeCoord(localEnemyX), encodeCoord(localEnemyY))
 
         enviarCoordenadas(CHANNEL_CALEB, MSG_ENEMY_POS, localEnemyX, localEnemyY)
 
-        // Mision cumplida: Caleb ya no vuelve a patrullar
+        // Mision cumplida: Caleb queda inhabilitado
         misionCompleta = 1
-        printf("Caleb: mision completa, quedandose parado^n")
+        printf("Caleb: reporte enviado, quedando inhabilitado^n")
         stand()
 
     } else {
+        // Fuera de rango: correr hacia el lider hasta estar a <50
         new float:angleToLeader = calcAngleTo(myX, myY, leaderX, leaderY)
         rotate(angleToLeader)
         if (!isRunning()) {
@@ -396,7 +451,7 @@ stock ramboEsperarOrdenes() {
 }
 
 // Navega corriendo desde la posicion actual hasta (tx, ty).
-// Maneja paredes y colisiones con soldados en el camino.
+// Maneja paredes, colisiones con soldados, y esquiva compañeros proactivamente.
 stock ramboNavHacia(float:tx, float:ty) {
     new float:myX
     new float:myY
@@ -426,6 +481,21 @@ stock ramboNavHacia(float:tx, float:ty) {
         // Corregir rumbo si se desvio mucho
         rotate(calcAngleTo(myX, myY, tx, ty))
 
+        // --- Anti-choque proactivo con compañeros ---
+        // Detecta amigos cercanos ANTES de colisionar y los rodea
+        if (evitarCompanero(5.0)) {
+            // Despues de esquivar, recalcular rumbo al destino
+            getLocation(myX, myY)
+            rotate(calcAngleTo(myX, myY, tx, ty))
+            wait(0.5)
+            if (!isRunning()) {
+                walk()
+                wait(0.5)
+                run()
+                wait(0.5)
+            }
+        }
+
         // Evitar paredes: parar, girar 90°, continuar
         if (sight() < 3.0) {
             stand()
@@ -442,18 +512,23 @@ stock ramboNavHacia(float:tx, float:ty) {
             wait(0.5)
         }
 
-        // Evitar colision con soldados: parar, girar 90°, continuar
+        // Evitar colision fisica con cualquier soldado (respaldo)
+        // Usa walkbk para retroceder y luego gira diagonal para salir
         if (getTouched() & ITEM_WARRIOR != 0) {
+            // Retroceder para despegarse
             stand()
-            wait(1.0)
+            wait(0.2)
+            walkbk()
+            wait(0.8)
+            stand()
+            wait(0.2)
+            // Girar ~135° (opuesto + 45°) para rodear
             new float:evade2
-            if (random(2) == 0) {
-                evade2 = getDirection() + HALF_PI
-            } else {
-                evade2 = getDirection() - HALF_PI
-            }
+            evade2 = getDirection() + PI - 0.7854
             rotate(evade2)
-            wait(1.0)
+            wait(0.5)
+            walk()
+            wait(0.3)
             run()
             wait(0.5)
         }
@@ -467,11 +542,32 @@ stock ramboNavHacia(float:tx, float:ty) {
     }
 }
 
-// Fase 2: Primero va al centro (0,0) para despegarse del grupo,
-// luego corre al destino indicado por el Jefe.
+// Fase 2: Se separa del grupo retrocediendo, luego corre al destino.
 stock ramboIrAlDestino() {
-    printf("Rambo: despejando al centro...^n")
-    ramboNavHacia(0.0, 0.0)
+    new float:myX
+    new float:myY
+    getLocation(myX, myY)
+
+    // Calcular si los compañeros estan cerca al inicio
+    new float:leaderX
+    new float:leaderY
+    getGoalLocation(0, leaderX, leaderY)
+    new float:distToLeader = calcDist(myX, myY, leaderX, leaderY)
+
+    // Si estamos cerca del grupo, primero retroceder para despegarnos
+    if (distToLeader < 8.0) {
+        printf("Rambo: separandose del grupo...^n")
+        // Girar OPUESTO al lider para alejarse
+        new float:awayAngle = calcAngleTo(leaderX, leaderY, myX, myY)
+        rotate(awayAngle)
+        wait(1.0)
+        walk()
+        wait(0.5)
+        run()
+        wait(2.0)  // correr 2 segundos para separarse bien
+        stand()
+        wait(0.5)
+    }
 
     printf("Rambo: corriendo al objetivo^n")
     ramboNavHacia(destX, destY)
