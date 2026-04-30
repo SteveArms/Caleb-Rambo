@@ -15,7 +15,6 @@ new const float:HEAD_MAX    = 1.0472
 
 new float:destX = 0.0
 new float:destY = 0.0
-new goingToDest = 0
 
 // ═══════════════════════════════════════════════════════════════════
 //  Funciones utilitarias
@@ -113,40 +112,6 @@ stock evitarColision() {
         return 1
     }
     return 0
-}
-
-// Evitar pared version Rambo (con cooldown, sin stop)
-stock evitarParedConCooldown(&float:lastWall) {
-    if (sight() < 3.0 && getTime() - lastWall >= 1.0) {
-        new float:angle
-        if (random(2) == 0) {
-            angle = getDirection() + HALF_PI
-        } else {
-            angle = getDirection() - HALF_PI
-        }
-        rotate(angle)
-        lastWall = getTime()
-        if (goingToDest == 1) {
-            walk()
-        }
-    }
-}
-
-// Evitar colision version Rambo (con cooldown, sin stop)
-stock evitarColisionConCooldown(&float:lastCollision) {
-    if (getTouched() & ITEM_WARRIOR != 0 && getTime() - lastCollision >= 1.0) {
-        new float:angle
-        if (random(2) == 0) {
-            angle = getDirection() + HALF_PI
-        } else {
-            angle = getDirection() - HALF_PI
-        }
-        rotate(angle)
-        lastCollision = getTime()
-        if (goingToDest == 1) {
-            walk()
-        }
-    }
 }
 
 // Envia 3 palabras por speak() con cooldown: header, coordX, coordY
@@ -279,10 +244,11 @@ loopCaleb() {
 
     for (;;) {
 
-        // --- Mision completada: Caleb se queda parado ---
+        // --- Mision completada: Caleb se queda parado con cabeza al frente ---
         if (misionCompleta == 1) {
             stand()
-            wait(0.5)
+            rotateHead(0.0)   // cancelar rotacion de cabeza
+            wait(1.0)
             // No hace nada mas, vuelve a esperar
         } else {
 
@@ -300,7 +266,7 @@ loopCaleb() {
                 new float:myX
                 new float:myY
                 getLocation(myX, myY)
-                new float:absoluteAngle = getDirection() + getHeadYaw() + yaw
+                new float:absoluteAngle = getDirection() + getTorsoYaw() + getHeadYaw() + yaw
                 localEnemyX = myX + dist * cos(absoluteAngle)
                 localEnemyY = myY + dist * sin(absoluteAngle)
                 printf("Caleb myX:%f myY:%f^n", myX, myY)
@@ -400,125 +366,176 @@ stock calebPatrullarEsquinas(float:cornersX[], float:cornersY[], &cornerIndex) {
 //  RAMBO (ID 2) - Recibe coordenadas del jefe, navega y ataca
 // ═══════════════════════════════════════════════════════════════════
 
-loopRambo() {
-    seed(0)
-
-    new headDir = 1
-    new float:headAngle = 0.0
-    new estado = 0
-    new float:lastShot = 0.0
-    new float:lastRotate = 0.0
-    new float:lastWall = 0.0
-    new float:lastCollision = 0.0
-
-    // Rambo espera parado hasta recibir orden del jefe
+// Fase 1: Espera bloqueante hasta recibir coordenadas del Jefe.
+// Retorna cuando tiene destX/destY listos.
+stock ramboEsperarOrdenes() {
+    printf("Rambo: esperando ordenes...^n")
     stand()
 
+    new estado = 0
     for (;;) {
+        new word
+        new id
+        if (listen(CHANNEL_ORDERS, word, id)) {
+            if (estado == 0 && word == ORDER_GO_LOCATION) {
+                estado = 1
+            }
+            else if (estado == 1) {
+                destX = decodeCoord(word)
+                estado = 2
+            }
+            else if (estado == 2) {
+                destY = decodeCoord(word)
+                estado = 0
+                printf("Rambo recibio destX:%f destY:%f^n", destX, destY)
+                return   // ordenes recibidas, salir de la espera
+            }
+        }
+        wait(0.04)
+    }
+}
 
-        // --- Escuchar coordenadas del jefe ---
-        ramboEscucharOrdenes(estado)
+// Navega corriendo desde la posicion actual hasta (tx, ty).
+// Maneja paredes y colisiones con soldados en el camino.
+stock ramboNavHacia(float:tx, float:ty) {
+    new float:myX
+    new float:myY
 
-        // --- Navegar hacia el destino ---
-        if (goingToDest == 1) {
-            ramboNavegar()
+    // Orden correcto: parar → rotar → correr
+    if (!isStanding()) {
+        stand()
+        wait(1.0)
+    }
+    getLocation(myX, myY)
+    rotate(calcAngleTo(myX, myY, tx, ty))
+    wait(1.0)   // esperar a que complete la rotacion
+    walk()      // walk() primero — no se puede ir de stand a run directamente
+    wait(1.0)
+    run()
+    wait(0.5)   // esperar a que arranque
+
+    for (;;) {
+        getLocation(myX, myY)
+
+        if (calcDist(myX, myY, tx, ty) < 3.0) {
+            stand()
+            wait(1.0)
+            return
         }
 
-        // --- Rotar cabeza para escanear ---
-        rotarCabeza(headAngle, headDir)
+        // Corregir rumbo si se desvio mucho
+        rotate(calcAngleTo(myX, myY, tx, ty))
 
-        // --- Detectar y atacar enemigos ---
-        ramboAtacar(lastShot, lastRotate)
+        // Evitar paredes: parar, girar 90°, continuar
+        if (sight() < 3.0) {
+            stand()
+            wait(1.0)
+            new float:evade
+            if (random(2) == 0) {
+                evade = getDirection() + HALF_PI
+            } else {
+                evade = getDirection() - HALF_PI
+            }
+            rotate(evade)
+            wait(1.0)
+            run()
+            wait(0.5)
+        }
 
-        // --- Evitar paredes y colisiones ---
-        evitarParedConCooldown(lastWall)
-        evitarColisionConCooldown(lastCollision)
+        // Evitar colision con soldados: parar, girar 90°, continuar
+        if (getTouched() & ITEM_WARRIOR != 0) {
+            stand()
+            wait(1.0)
+            new float:evade2
+            if (random(2) == 0) {
+                evade2 = getDirection() + HALF_PI
+            } else {
+                evade2 = getDirection() - HALF_PI
+            }
+            rotate(evade2)
+            wait(1.0)
+            run()
+            wait(0.5)
+        }
+
+        if (!isRunning()) {
+            run()
+            wait(0.5)
+        }
 
         wait(0.04)
     }
 }
 
-// Rambo escucha ordenes del jefe (maquina de estados de 3 pasos)
-stock ramboEscucharOrdenes(&estado) {
-    new word
-    new id
-    if (listen(CHANNEL_ORDERS, word, id)) {
+// Fase 2: Primero va al centro (0,0) para despegarse del grupo,
+// luego corre al destino indicado por el Jefe.
+stock ramboIrAlDestino() {
+    printf("Rambo: despejando al centro...^n")
+    ramboNavHacia(0.0, 0.0)
 
-        if (estado == 0 && word == ORDER_GO_LOCATION) {
-            estado = 1
-        }
-        else if (estado == 1) {
-            destX = decodeCoord(word)
-            estado = 2
-        }
-        else if (estado == 2) {
-            destY = decodeCoord(word)
-            estado = 0
-            goingToDest = 1
-            printf("Rambo recibio destX:%f destY:%f^n", destX, destY)
-        }
-    }
+    printf("Rambo: corriendo al objetivo^n")
+    ramboNavHacia(destX, destY)
+
+    printf("Rambo: llego al destino^n")
 }
 
-// Rambo navega hacia destX/destY
-stock ramboNavegar() {
-    new float:myX
-    new float:myY
-    getLocation(myX, myY)
 
-    new float:distToDest = calcDist(myX, myY, destX, destY)
+// Fase 3: Caza al enemigo en el area del destino. Gira, apunta y dispara.
+stock ramboCazar() {
+    printf("Rambo: modo caza activado^n")
 
-    if (distToDest < 2.0) {
-        // Llego al destino, vuelve a esperar parado
-        goingToDest = 0
-        stand()
-    } else {
-        new float:angleToTarget = calcAngleTo(myX, myY, destX, destY)
-        rotate(angleToTarget)
-        if (!isWalking()) {
-            stand()
-            wait(1.0)
-            walk()
-        }
-    }
-}
+    new headDir = 1
+    new float:headAngle = 0.0
+    new float:lastShot = 0.0
 
-// Rambo detecta y ataca enemigos
-stock ramboAtacar(&float:lastShot, &float:lastRotate) {
-    new item = ITEM_WARRIOR | ITEM_ENEMY
-    new float:dist = 0.0
-    new float:yaw
-    watch(item, dist, yaw)
+    for (;;) {
+        // Rotar cabeza para escanear
+        rotarCabeza(headAngle, headDir)
 
-    printf("dist:%f yaw:%f^n", dist, yaw)
+        // Detectar enemigo
+        new item = ITEM_WARRIOR | ITEM_ENEMY
+        new float:dist = 0.0
+        new float:yaw
+        watch(item, dist, yaw)
 
-    if (item == ITEM_WARRIOR | ITEM_ENEMY) {
-        // Rotar solo si paso suficiente tiempo
-        if (goingToDest == 0) {
-            // Solo rota el cuerpo si NO está navegando
-            if (getTime() - lastRotate >= 0.5) {
-                rotate(getDirection() + getTorsoYaw() + getHeadYaw() + yaw)
-                lastRotate = getTime()
-            }
-        } else {
-            // Si está navegando, solo apunta el torso hacia el enemigo
-            rotateTorso(yaw)
-        }
+        if (item == ITEM_WARRIOR | ITEM_ENEMY) {
+            // Apuntar el cuerpo al enemigo
+            rotate(getDirection() + getTorsoYaw() + getHeadYaw() + yaw)
+            wait(0.1)
 
-        new aimItem
-        aim(aimItem)
-        if (aimItem & ITEM_ENEMY != 0) {
-            // Disparar solo si paso suficiente tiempo desde el ultimo disparo
-            if (getTime() - lastShot >= 0.5) {
-                if (dist < 5.0 && getGrenadeLoad() > 0) {
-                    launchGrenade()
-                    lastShot = getTime()
-                } else if (getBulletLoad() > 0) {
-                    shootBullet()
-                    lastShot = getTime()
+            new aimItem
+            aim(aimItem)
+            if (aimItem & ITEM_ENEMY != 0) {
+                if (getTime() - lastShot >= 0.4) {
+                    if (dist < 5.0 && getGrenadeLoad() > 0) {
+                        launchGrenade()
+                        lastShot = getTime()
+                    } else if (getBulletLoad() > 0) {
+                        shootBullet()
+                        lastShot = getTime()
+                    }
                 }
             }
         }
+
+        wait(0.04)
+    }
+}
+
+// Loop principal de Rambo: fases secuenciales
+loopRambo() {
+    seed(0)
+    stand()
+
+    for (;;) {
+        // Fase 1 — Esperar ordenes del Jefe
+        ramboEsperarOrdenes()
+
+        // Fase 2 — Ir corriendo al destino
+        ramboIrAlDestino()
+
+        // Fase 3 — Cazar en el area (loop infinito hasta nuevo mensaje)
+        ramboCazar()
     }
 }
 
