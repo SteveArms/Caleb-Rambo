@@ -251,6 +251,8 @@ loopJefe() {
                 }
             }
         }
+
+        wait(0.04)
     }
 }
 
@@ -260,6 +262,7 @@ loopJefe() {
 
 loopCaleb() {
     new huyendo = 0
+    new misionCompleta = 0   // 1 = ya entrego info, ya no patrulla
     new headDir = 1
     new float:headAngle = 0.0
     new float:localEnemyX = 0.0
@@ -276,63 +279,63 @@ loopCaleb() {
 
     for (;;) {
 
-        // --- Rotar cabeza para escanear ---
-        rotarCabeza(headAngle, headDir)
-
-        // --- Detectar enemigos cercanos ---
-        new item = ITEM_WARRIOR | ITEM_ENEMY
-        new float:dist = 0.0
-        new float:yaw
-        watch(item, dist, yaw)
-
-        if (item == ITEM_WARRIOR | ITEM_ENEMY && dist < 10.0 && huyendo == 0) {
-            huyendo = 1
-            new float:myX
-            new float:myY
-            getLocation(myX, myY)
-            new float:absoluteAngle = getDirection() + getHeadYaw() + yaw
-            localEnemyX = myX + dist * cos(absoluteAngle)
-            localEnemyY = myY + dist * sin(absoluteAngle)
-            printf("Caleb myX:%f myY:%f^n", myX, myY)
-            printf("Caleb dist:%f yaw:%f^n", dist, yaw)
-            printf("Caleb absoluteAngle:%f^n", absoluteAngle)
-        }
-
-        // --- Si hay enemigo cerca, correr hacia el lider ---
-        if (huyendo == 1) {
-            calebHuirAlLider(huyendo, localEnemyX, localEnemyY)
+        // --- Mision completada: Caleb se queda parado ---
+        if (misionCompleta == 1) {
+            stand()
+            wait(0.5)
+            // No hace nada mas, vuelve a esperar
         } else {
-            // --- Navegar hacia la esquina actual ---
-            calebPatrullarEsquinas(cornersX, cornersY, cornerIndex)
-        }
 
-        // --- Evitar paredes y colisiones ---
-        if (evitarPared()) {
-            if (huyendo == 1) {
-                run()
-            } else {
-                walk()
+            // --- Rotar cabeza para escanear ---
+            rotarCabeza(headAngle, headDir)
+
+            // --- Detectar enemigos cercanos ---
+            new item = ITEM_WARRIOR | ITEM_ENEMY
+            new float:dist = 0.0
+            new float:yaw
+            watch(item, dist, yaw)
+
+            if (item == ITEM_WARRIOR | ITEM_ENEMY && dist < 10.0 && huyendo == 0) {
+                huyendo = 1
+                new float:myX
+                new float:myY
+                getLocation(myX, myY)
+                new float:absoluteAngle = getDirection() + getHeadYaw() + yaw
+                localEnemyX = myX + dist * cos(absoluteAngle)
+                localEnemyY = myY + dist * sin(absoluteAngle)
+                printf("Caleb myX:%f myY:%f^n", myX, myY)
+                printf("Caleb dist:%f yaw:%f^n", dist, yaw)
+                printf("Caleb absoluteAngle:%f^n", absoluteAngle)
             }
-        }
 
-        if (evitarColision()) {
+            // --- Si hay enemigo, correr hacia el lider y entregar info ---
             if (huyendo == 1) {
-                run()
+                calebHuirAlLider(huyendo, misionCompleta, localEnemyX, localEnemyY)
             } else {
-                walk()
+                // --- Navegar hacia la esquina actual ---
+                calebPatrullarEsquinas(cornersX, cornersY, cornerIndex)
             }
-        }
 
-        if (!huyendo && !isWalking()) {
-            walk()
+            // --- Evitar paredes y colisiones (solo si no termino mision) ---
+            if (misionCompleta == 0) {
+                if (evitarPared()) {
+                    if (huyendo == 1) { run(); } else { walk(); }
+                }
+                if (evitarColision()) {
+                    if (huyendo == 1) { run(); } else { walk(); }
+                }
+                if (!huyendo && !isWalking()) {
+                    walk()
+                }
+            }
         }
 
         wait(0.04)
     }
 }
 
-// Caleb huye hacia el lider. Cuando llega, envia coordenadas del enemigo.
-stock calebHuirAlLider(&huyendo, float:localEnemyX, float:localEnemyY) {
+// Caleb huye hacia el lider. Cuando llega, envia coordenadas y marca mision completa.
+stock calebHuirAlLider(&huyendo, &misionCompleta, float:localEnemyX, float:localEnemyY) {
     new float:leaderX
     new float:leaderY
     new float:myX
@@ -351,9 +354,10 @@ stock calebHuirAlLider(&huyendo, float:localEnemyX, float:localEnemyY) {
 
         enviarCoordenadas(CHANNEL_CALEB, MSG_ENEMY_POS, localEnemyX, localEnemyY)
 
+        // Mision cumplida: Caleb ya no vuelve a patrullar
+        misionCompleta = 1
+        printf("Caleb: mision completa, quedandose parado^n")
         stand()
-        wait(1.0)
-        walk()
 
     } else {
         new float:angleToLeader = calcAngleTo(myX, myY, leaderX, leaderY)
