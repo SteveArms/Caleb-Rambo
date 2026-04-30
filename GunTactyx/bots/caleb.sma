@@ -17,6 +17,17 @@ new const MSG_ENEMY_FOUND = 200;
 new float:spawnX = 0.0;
 new float:spawnY = 0.0;
 
+// DFS exploration
+new const GRID_N = 5;
+new const GRID_STEP = 24.0;
+new const GRID_START = -48.0;
+new float:gridX[25];
+new float:gridY[25];
+new visited[25];
+new stack[25];
+new stackTop = 0;
+new currentTarget = -1;
+
 // ── Math ─────────────────────────────────────────────────────────
 
 stock float:wrapPi(float:a) {
@@ -157,29 +168,83 @@ main() {
 
     wait(0.5); // no chocar con bots del circulo al arrancar
 
-    // Punto intermedio spawn -> centro
-    new float:midX = spawnX / 2.0;
-    new float:midY = spawnY / 2.0;
+    // Initialize grid
+    for (new i = 0; i < GRID_N; i++) {
+        for (new j = 0; j < GRID_N; j++) {
+            new idx = i * GRID_N + j;
+            gridX[idx] = GRID_START + j * GRID_STEP;
+            gridY[idx] = GRID_START + i * GRID_STEP;
+            visited[idx] = 0;
+        }
+    }
 
-    // Loop de patrulla: spawn -> mid -> centro -> mid -> spawn -> repeat
+    // Start DFS from center
+    new startIdx = 12; // 2*5+2
+    stack[stackTop++] = startIdx;
+    visited[startIdx] = 1;
+    currentTarget = startIdx;
+
+    // DFS exploration loop
     for (;;) {
-        // Ir al punto intermedio
-        walkToRetry(midX, midY, 3);
+        // Go to current target
+        walkToRetry(gridX[currentTarget], gridY[currentTarget], 3);
         scan360();
 
-        // Ir al centro
-        walkToRetry(0.0, 0.0, 5);
-        scan360();
+        // Get next target from DFS
+        if (stackTop > 0) {
+            currentTarget = stack[--stackTop];
+            // Push unvisited neighbors
+            new i = currentTarget / GRID_N;
+            new j = currentTarget % GRID_N;
+            // up
+            if (i > 0) {
+                new ni = i-1;
+                new nj = j;
+                new nidx = ni * GRID_N + nj;
+                if (!visited[nidx]) {
+                    visited[nidx] = 1;
+                    stack[stackTop++] = nidx;
+                }
+            }
+            // down
+            if (i < GRID_N-1) {
+                new ni = i+1;
+                new nj = j;
+                new nidx = ni * GRID_N + nj;
+                if (!visited[nidx]) {
+                    visited[nidx] = 1;
+                    stack[stackTop++] = nidx;
+                }
+            }
+            // left
+            if (j > 0) {
+                new ni = i;
+                new nj = j-1;
+                new nidx = ni * GRID_N + nj;
+                if (!visited[nidx]) {
+                    visited[nidx] = 1;
+                    stack[stackTop++] = nidx;
+                }
+            }
+            // right
+            if (j < GRID_N-1) {
+                new ni = i;
+                new nj = j+1;
+                new nidx = ni * GRID_N + nj;
+                if (!visited[nidx]) {
+                    visited[nidx] = 1;
+                    stack[stackTop++] = nidx;
+                }
+            }
+        } else {
+            // All visited, reset
+            for (new k = 0; k < 25; k++) visited[k] = 0;
+            stackTop = 0;
+            stack[stackTop++] = startIdx;
+            visited[startIdx] = 1;
+            currentTarget = startIdx;
+        }
 
-        // Volver pasando por el punto intermedio
-        walkToRetry(midX, midY, 3);
-        scan360();
-
-        // Volver al spawn
-        walkToRetry(spawnX, spawnY, 5);
-        scan360();
-
-        // Pausa antes de la siguiente ronda
         wait(1.0);
     }
 }
