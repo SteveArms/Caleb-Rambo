@@ -98,7 +98,7 @@ stock evitarParedes() {
 
         new float:dir = getDirection();
 
-        // 🔥 GIRO FUERTE (tipo rebote)
+        //  GIRO FUERTE (tipo rebote)
         new float:angle = dir + 3.1415; // PI → girar 180°
 
         // pequeña variación para que no todos hagan lo mismo
@@ -106,7 +106,7 @@ stock evitarParedes() {
 
         rotate(angle);
 
-        walk(); // 🔥 aseguramos movimiento
+        walk(); //  aseguramos movimiento
 
         wait(0.1);
 
@@ -136,7 +136,7 @@ stock evitarColisiones() {
 
         rotate(angle);
 
-        // 🔥 CLAVE: FORZAR QUE SIGA CAMINANDO
+        //  CLAVE: FORZAR QUE SIGA CAMINANDO
         walk();
 
         wait(0.1);
@@ -161,13 +161,13 @@ main() {
 
     while (true) {
 
-        // 🔥 PRIORIDAD 1: PAREDES
+        //  PRIORIDAD 1: PAREDES
         if (evitarParedes()) {
             wait(0.04);
             continue;
         }
 
-        // 🔥 PRIORIDAD 2: COLISIONES
+        //  PRIORIDAD 2: COLISIONES
         if (evitarColisiones()) {
             wait(0.04);
             continue;
