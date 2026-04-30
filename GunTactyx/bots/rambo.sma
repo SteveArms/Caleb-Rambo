@@ -176,7 +176,7 @@ stock ramboRecibir() {
 
             estado = 0;
 
-            // 🔥 CLAVE: calcular ángulo directo
+            // CLAVE: calcular ángulo directo
             targetAngle = getDirection() + yaw;
 
             tieneOrden = true;
