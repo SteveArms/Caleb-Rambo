@@ -2,6 +2,16 @@
 #include "math"
 #include "bots"
 
+#define CHANNEL 1
+#define MSG_ENEMY 200
+
+// ============================
+// VARIABLES RAMBO
+// ============================
+new float:targetX = 0.0;
+new float:targetY = 0.0;
+new bool:tieneObjetivo = false;
+
 // ============================
 // INICIO
 // ============================
@@ -11,12 +21,31 @@ stock iniciarBot() {
 }
 
 // ============================
+// ATAN2
+// ============================
+stock float:atan2(float:y, float:x) {
+
+    if (abs(x) < 0.00001) {
+        if (y > 0.0) return 1.5708;
+        return -1.5708;
+    }
+
+    new float:a = atan(y / x);
+
+    if (x < 0.0) {
+        if (y >= 0.0) return a + 3.1415;
+        return a - 3.1415;
+    }
+
+    return a;
+}
+
+// ============================
 // ESCANEO
 // ============================
 stock escanear(&float:headAngle, &headDir) {
 
-    new float:delta = 0.2618 * float(headDir);
-    headAngle = headAngle + delta;
+    headAngle += 0.2618 * float(headDir);
 
     if (headAngle >= 1.0472) {
         headAngle = 1.0472;
@@ -34,26 +63,9 @@ stock escanear(&float:headAngle, &headDir) {
 // DISPERSIÓN
 // ============================
 stock moverseDispersion() {
-
     new float:dir = getDirection();
     new float:randTurn = (float(random(200)) / 100.0) - 1.0;
-
-    new float:angle = dir + (randTurn * 1.2); // más fuerte
-
-    rotate(angle);
-}
-
-// ============================
-// RAMBO MOVIMIENTO
-// ============================
-stock moverseRambo() {
-
-    new float:dir = getDirection();
-    new float:randTurn = (float(random(200)) / 100.0) - 1.0;
-
-    new float:angle = dir + (randTurn * 0.5);
-
-    rotate(angle);
+    rotate(dir + randTurn * 1.2);
 }
 
 // ============================
@@ -69,11 +81,7 @@ stock atacar() {
 
     if ((item & ITEM_ENEMY) != 0) {
 
-        new float:dir = getDirection();
-        new float:torso = getTorsoYaw();
-        new float:head = getHeadYaw();
-
-        new float:angle = dir + torso + head + yaw;
+        new float:angle = getDirection() + yaw;
 
         rotate(angle);
         wait(0.2);
@@ -88,36 +96,26 @@ stock atacar() {
 }
 
 // ============================
-// EVITAR PAREDES (MEJORADO)
+// EVITAR PAREDES
 // ============================
 stock evitarParedes() {
 
-    new float:distWall = sight();
+    if (sight() < 7.0) {
 
-    if (distWall < 7.0) {
-
-        new float:dir = getDirection();
-
-        //  GIRO FUERTE (tipo rebote)
-        new float:angle = dir + 3.1415; // PI → girar 180°
-
-        // pequeña variación para que no todos hagan lo mismo
-        angle = angle + ((float(random(100)) / 100.0) - 0.5);
+        new float:angle = getDirection() + 3.1415;
+        angle += ((float(random(100)) / 100.0) - 0.5);
 
         rotate(angle);
-
-        walk(); //  aseguramos movimiento
+        walk();
 
         wait(0.1);
-
         return 1;
     }
-
     return 0;
 }
 
 // ============================
-// EVITAR COLISIONES (FIX REAL)
+// EVITAR COLISIONES
 // ============================
 stock evitarColisiones() {
 
@@ -125,26 +123,143 @@ stock evitarColisiones() {
 
     if ((touched & ITEM_WARRIOR) != 0) {
 
-        new float:dir = getDirection();
         new float:angle;
 
         if (random(2) == 0) {
-            angle = dir + 2.0;
+            angle = getDirection() + 2.0;
         } else {
-            angle = dir - 2.0;
+            angle = getDirection() - 2.0;
         }
 
         rotate(angle);
-
-        //  CLAVE: FORZAR QUE SIGA CAMINANDO
         walk();
 
         wait(0.1);
-
         return 1;
     }
-
     return 0;
+}
+
+// ============================
+// LÍDER (datos simulados)
+// ============================
+stock liderEnviar() {
+
+    static estado = 0;
+    static float:lastTime = 0.0;
+
+    if (getTime() - lastTime < getTimeNeededFor(ACTION_SPEAK)) {
+        return;
+    }
+
+    if (estado == 0) {
+        if (speak(CHANNEL, MSG_ENEMY)) {
+            estado = 1;
+            lastTime = getTime();
+        }
+    }
+    else if (estado == 1) {
+        if (speak(CHANNEL, 50)) { // yaw
+            estado = 2;
+            lastTime = getTime();
+        }
+    }
+    else if (estado == 2) {
+        if (speak(CHANNEL, 60)) { // distancia
+            estado = 0;
+            lastTime = getTime();
+        }
+    }
+}
+
+// ============================
+// RAMBO RECIBE
+// ============================
+stock ramboRecibir() {
+
+    new msg, sender;
+
+    static estado = 0;
+    static float:yaw = 0.0;
+    static float:dist = 0.0;
+
+    if (listen(CHANNEL, msg, sender)) {
+
+        if (estado == 0 && msg == MSG_ENEMY) {
+            estado = 1;
+        }
+        else if (estado == 1) {
+            yaw = float(msg) / 100.0;
+            estado = 2;
+        }
+        else if (estado == 2) {
+
+            dist = float(msg) / 100.0;
+            estado = 0;
+
+            new float:x, float:y, float:z;
+            getLocation(x, y, z);
+
+            new float:angle = getDirection() + getTorsoYaw() + getHeadYaw() + yaw;
+
+            targetX = x + cos(angle) * dist;
+            targetY = y + sin(angle) * dist;
+
+            tieneObjetivo = true;
+        }
+    }
+}
+
+// ============================
+// RAMBO MOVER (FIX REAL)
+// ============================
+stock ramboMover() {
+
+    if (!tieneObjetivo) {
+        return;
+    }
+
+    new float:x, float:y, float:z;
+    getLocation(x, y, z);
+
+    new float:dx = targetX - x;
+    new float:dy = targetY - y;
+
+    new float:dist = sqrt(dx*dx + dy*dy);
+
+    // 🔥 LLEGÓ
+    if (dist < 1.0) {
+
+        tieneObjetivo = false;
+
+        if (!isStanding()) {
+            stand();
+        }
+
+        return;
+    }
+
+    new float:targetAngle = atan2(dy, dx);
+    new float:current = getDirection();
+    new float:diff = targetAngle - current;
+
+    // NORMALIZAR
+    if (diff > 3.1415) diff -= 6.2830;
+    if (diff < -3.1415) diff += 6.2830;
+
+    // 🔥 CLAVE: SOLO GIRAR SI ES NECESARIO
+    if (abs(diff) > 0.1) {
+        rotate(current + diff);
+    }
+
+    // 🔥 SOLO CAMINA SI YA ESTÁ MÁS O MENOS ALINEADO
+    if (abs(diff) < 0.5) {
+        if (!isWalking()) {
+            walk();
+        }
+    } else {
+        stand();
+    }
 }
 
 // ============================
@@ -161,50 +276,38 @@ main() {
 
     while (true) {
 
-        //  PRIORIDAD 1: PAREDES
-        if (evitarParedes()) {
-            wait(0.04);
-            continue;
+        if (getID() == 0) {
+            liderEnviar();
         }
 
-        //  PRIORIDAD 2: COLISIONES
-        if (evitarColisiones()) {
-            wait(0.04);
-            continue;
-        }
+        if (evitarParedes()) { wait(0.04); continue; }
+        if (evitarColisiones()) { wait(0.04); continue; }
 
-        // ============================
-        // FASE 1: DISPERSIÓN
-        // ============================
         if ((getTime() - startTime) < 4.0) {
 
             moverseDispersion();
+
+            if (!isWalking()) {
+                walk();
+            }
         }
         else {
 
-            // ============================
-            // FASE 2: ROLES
-            // ============================
-
             if (getID() == 2) {
 
-                moverseRambo();
+                ramboRecibir();
+                ramboMover();
                 atacar();
+            }
+            else {
 
-            } else {
-                // quietos pero SIN bloquear lógica
                 if (!isStanding()) {
                     stand();
                 }
             }
         }
 
-        // comportamiento común
         escanear(headAngle, headDir);
-
-        if (!isWalking() && getID() == 2) {
-            walk();
-        }
 
         wait(0.04);
     }
