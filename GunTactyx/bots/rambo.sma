@@ -3,12 +3,10 @@
 #include "bots"
 
 // ============================
-// INICIALIZACIÓN
+// INICIO
 // ============================
 stock iniciarBot() {
-    seed(0);
-    stand();
-    wait(1.0);
+    seed(getID());
     walk();
 }
 
@@ -33,6 +31,32 @@ stock escanear(&float:headAngle, &headDir) {
 }
 
 // ============================
+// DISPERSIÓN
+// ============================
+stock moverseDispersion() {
+
+    new float:dir = getDirection();
+    new float:randTurn = (float(random(200)) / 100.0) - 1.0;
+
+    new float:angle = dir + (randTurn * 1.2); // más fuerte
+
+    rotate(angle);
+}
+
+// ============================
+// RAMBO MOVIMIENTO
+// ============================
+stock moverseRambo() {
+
+    new float:dir = getDirection();
+    new float:randTurn = (float(random(200)) / 100.0) - 1.0;
+
+    new float:angle = dir + (randTurn * 0.5);
+
+    rotate(angle);
+}
+
+// ============================
 // ATAQUE
 // ============================
 stock atacar() {
@@ -48,53 +72,52 @@ stock atacar() {
         new float:dir = getDirection();
         new float:torso = getTorsoYaw();
         new float:head = getHeadYaw();
+
         new float:angle = dir + torso + head + yaw;
 
         rotate(angle);
-        wait(0.5);
+        wait(0.2);
 
         new aimItem;
         aim(aimItem);
 
         if ((aimItem & ITEM_ENEMY) != 0) {
             shootBullet();
-            wait(0.5);
         }
     }
 }
 
 // ============================
-// EVITAR PAREDES
+// EVITAR PAREDES (MEJORADO)
 // ============================
 stock evitarParedes() {
 
     new float:distWall = sight();
 
-    if (distWall < 3.0) {
-
-        stand();
-        wait(1.0);
-
-        new randDir = random(2);
+    if (distWall < 7.0) {
 
         new float:dir = getDirection();
-        new float:angle;
 
-        if (randDir == 0) {
-            angle = dir + 1.5708;
-        } 
-        else {
-            angle = dir - 1.5708;
-        }
+        // 🔥 GIRO FUERTE (tipo rebote)
+        new float:angle = dir + 3.1415; // PI → girar 180°
+
+        // pequeña variación para que no todos hagan lo mismo
+        angle = angle + ((float(random(100)) / 100.0) - 0.5);
 
         rotate(angle);
-        wait(1.0);
-        walk();
+
+        walk(); // 🔥 aseguramos movimiento
+
+        wait(0.1);
+
+        return 1;
     }
+
+    return 0;
 }
 
 // ============================
-// EVITAR COLISIONES
+// EVITAR COLISIONES (FIX REAL)
 // ============================
 stock evitarColisiones() {
 
@@ -102,25 +125,26 @@ stock evitarColisiones() {
 
     if ((touched & ITEM_WARRIOR) != 0) {
 
-        stand();
-        wait(1.0);
-
-        new randDir = random(2);
-
         new float:dir = getDirection();
         new float:angle;
 
-        if (randDir == 0) {
-            angle = dir + 1.5708;
-        } 
-        else {
-            angle = dir - 1.5708;
+        if (random(2) == 0) {
+            angle = dir + 2.0;
+        } else {
+            angle = dir - 2.0;
         }
 
         rotate(angle);
-        wait(1.0);
+
+        // 🔥 CLAVE: FORZAR QUE SIGA CAMINANDO
         walk();
+
+        wait(0.1);
+
+        return 1;
     }
+
+    return 0;
 }
 
 // ============================
@@ -128,30 +152,60 @@ stock evitarColisiones() {
 // ============================
 main() {
 
-    if (getID() == 2) {
+    iniciarBot();
 
-        iniciarBot();
+    new headDir = 1;
+    new float:headAngle = 0.0;
 
-        new headDir = 1;
-        new float:headAngle = 0.0;
+    new float:startTime = getTime();
 
-        while (true) {
+    while (true) {
 
-            if (!isWalking()) {
-                walk();
-            }
-
-            escanear(headAngle, headDir);
-            atacar();
-            evitarParedes();
-            evitarColisiones();
-
+        // 🔥 PRIORIDAD 1: PAREDES
+        if (evitarParedes()) {
             wait(0.04);
+            continue;
         }
-    } 
-    else {
-        while (true) {
-            wait(1.0);
+
+        // 🔥 PRIORIDAD 2: COLISIONES
+        if (evitarColisiones()) {
+            wait(0.04);
+            continue;
         }
+
+        // ============================
+        // FASE 1: DISPERSIÓN
+        // ============================
+        if ((getTime() - startTime) < 4.0) {
+
+            moverseDispersion();
+        }
+        else {
+
+            // ============================
+            // FASE 2: ROLES
+            // ============================
+
+            if (getID() == 2) {
+
+                moverseRambo();
+                atacar();
+
+            } else {
+                // quietos pero SIN bloquear lógica
+                if (!isStanding()) {
+                    stand();
+                }
+            }
+        }
+
+        // comportamiento común
+        escanear(headAngle, headDir);
+
+        if (!isWalking() && getID() == 2) {
+            walk();
+        }
+
+        wait(0.04);
     }
 }
