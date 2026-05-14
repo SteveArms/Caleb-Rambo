@@ -1,16 +1,4 @@
-/* GUN-TACTYX - Equipo unificado
- * ID 0 = Jefe    : ordena a Caleb buscar, retransmite info a Rambo
- * ID 1 = Caleb   : espera orden del Jefe, explora con DFS, reporta enemigos
- * ID 2 = Rambo   : recibe coordenadas y va a cazar
- *
- * SISTEMA DE HEARTBEAT:
- * Rambo envia MSG_ALIVE en CHANNEL_HEARTBEAT cada HB_INTERVAL segundos.
- * El Jefe escucha ese canal; si pasan HB_TIMEOUT segundos sin señal
- * del Rambo activo, rota al siguiente Rambo y le reenvía la misión.
- *
- * FIX: esperandoRambo ya no se apaga en el bloque de timeout,
- * se mantiene en 1 hasta que el nuevo Rambo resuelva la misión.
- */
+
 #include "core"
 #include "math"
 #include "bots"
@@ -530,17 +518,6 @@ loopJefe() {
                 }
             }
         }
-
-        /* ── Chequeo de heartbeat: si Rambo murio, rotar al siguiente ──
-         *
-         * FIX: esperandoRambo NO se apaga aqui. Se mantiene en 1 para que
-         * el nuevo Rambo tambien sea monitoreado. Solo se apaga cuando
-         * llega un nuevo reporte de Caleb y se asigna mision exitosamente
-         * (flujo normal: tieneInfo=1 → envio → esperandoRambo=1).
-         * En la practica esperandoRambo queda siempre en 1 despues del
-         * primer envio, lo cual es correcto: siempre hay un Rambo activo
-         * que monitorear.
-         */
         if (esperandoRambo == 1 && tieneInfo == 0) {
             if (getTime() - lastHBReceived >= HB_TIMEOUT) {
                 /* Rambo activo murio o perdio comunicacion */
