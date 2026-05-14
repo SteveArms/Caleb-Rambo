@@ -1,6 +1,6 @@
 /* GUN-TACTYX - Equipo unificado
- * ID 0 = Jefe    : retransmite info de Caleb a Rambo
- * ID 1 = Caleb   : explora con DFS, reporta enemigos al Jefe
+ * ID 0 = Jefe    : ordena a Caleb buscar, retransmite info a Rambo
+ * ID 1 = Caleb   : espera orden del Jefe, explora con DFS, reporta enemigos
  * ID 2 = Rambo   : recibe coordenadas y va a cazar
  */
 #include "core"
@@ -13,11 +13,13 @@ new const float:PI       = 3.14159265
 new const float:TWO_PI   = 6.28318530
 new const float:HALF_PI  = 1.57079632
 
-new const CHANNEL_CALEB  = 1
-new const CHANNEL_ORDERS = 2
+new const CHANNEL_CALEB      = 1
+new const CHANNEL_ORDERS     = 2
+new const CHANNEL_JEFE_CALEB = 3
 
 new const MSG_ENEMY_POS  = 300
 new const ORDER_GO       = 400
+new const ORDER_SEARCH   = 500
 
 /* destino de Rambo, global para que sea visible en todos los stocks */
 new float:destX = 0.0
@@ -258,6 +260,22 @@ stock dfsNext() {
 
 /* ─── CALEB (ID 1) ────────────────────────────────────────────── */
 
+stock calebEsperarOrden() {
+    new word
+    new id
+    printf("Caleb: esperando orden del Jefe para buscar...^n")
+    stand()
+    for (;;) {
+        if (listen(CHANNEL_JEFE_CALEB, word, id)) {
+            if (word == ORDER_SEARCH) {
+                printf("Caleb: orden recibida, iniciando busqueda^n")
+                return
+            }
+        }
+        wait(0.04)
+    }
+}
+
 loopCaleb() {
     new float:spawnX
     new float:spawnY
@@ -283,6 +301,9 @@ loopCaleb() {
     seed(1)
     initGrafo()
     getLocation(spawnX, spawnY, spawnZ)
+
+    /* Caleb espera la orden del Jefe antes de explorar */
+    calebEsperarOrden()
 
     huyendo     = 0
     reportado   = 0
@@ -389,6 +410,15 @@ loopCaleb() {
 
 /* ─── JEFE (ID 0) ─────────────────────────────────────────────── */
 
+stock jefeOrdenarBusqueda() {
+    printf("Jefe: enviando orden de busqueda a Caleb...^n")
+    /* reintentar hasta que speak() tenga exito */
+    while (!speak(CHANNEL_JEFE_CALEB, ORDER_SEARCH)) {
+        wait(0.3)
+    }
+    printf("Jefe: orden de busqueda enviada^n")
+}
+
 loopJefe() {
     new float:targetX
     new float:targetY
@@ -406,6 +436,10 @@ loopJefe() {
     estadoTx = 0
     lastTx   = 0.0
     tieneInfo = 0
+
+    /* El Jefe ordena a Caleb iniciar la busqueda */
+    wait(1.0)
+    jefeOrdenarBusqueda()
 
     for (;;) {
         if (listen(CHANNEL_CALEB, word, id)) {
